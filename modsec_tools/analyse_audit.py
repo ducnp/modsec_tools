@@ -109,7 +109,9 @@ def main():
     parser.add_argument('--filter-rules', action='store_true',
                         help='Only include requests that match at least one rule')
     parser.add_argument('--filter-response', type=int, help='Filter for given response code')
+    parser.add_argument('--filter-uid', help="Filter for unique id's")
     parser.add_argument('--show-requests', action='store_true', help='Output request and response details')
+    parser.add_argument('--show-full', action='store_true', help='Show full log entry information')
     parser.add_argument('--exclude-headers', action='store_false', help="Don't show request/response headers in output")
     parser.add_argument('files', nargs="*", help="Audit file(s) to parse")
 
@@ -122,6 +124,10 @@ def main():
 
     if args.filter is not None and args.filter_id is not None:
         print("Are you sure you want to specify both text & ID for filters?")
+
+    if args.show_requests and args.show_full:
+        print("You have asked for requests and full output which will generate a lot of information. " +
+              "Are you sure you mean this?")
 
     if args.filter_no_rule and args.filter_rules:
         print("You can't specify --filter-no-rule and --filter-rules together!")
@@ -147,6 +153,10 @@ def main():
         filtered = {}
         for _e in entries:
             _obj = entries[_e]
+            if args.filter_uid is not None:
+                if args.filter_uid in _obj.unique_id:
+                    filtered[_e] = _obj
+                continue
             if args.filter_host is not None:
                 if _obj.host is None or not _obj.matches_host(args.filter_host):
                     continue
@@ -176,7 +186,13 @@ def main():
             print_client_summary(entries)
 
         if args.show_requests:
+            print("\nREQUEST SUMMARIES:")
             for e in entries:
                 print(entries[e].as_string(args.exclude_headers))
+
+        if args.show_full:
+            print("\nFULL REQUEST LOG:")
+            for e in entries:
+                print(entries[e].raw_data())
 
     print("\nFinished.")

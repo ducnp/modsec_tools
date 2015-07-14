@@ -161,6 +161,34 @@ class AuditInfo(object):
 
         return s.decode()
 
+    def raw_data(self):
+        """ Return a formatted string giving full request information.
+        :return: Formatted string
+        """
+        s = b''
+        for hdr in [('Unique ID', 'unique_id'),
+                    ('Audit File', 'audit_fn'),
+                    ('URI', 'uri'),
+                    ('Host', 'host'),
+                    ('Date/Time', 'date_time'),
+                    ('Remote Address', 'remote_addr'),
+                    ('Response Code', 'response')]:
+            s += b'    {:20s}: {}\n'.format(hdr[0], getattr(self, hdr[1]))
+        for sect in [('Request Header', b'B'),
+                     ('Request Body', b'C'),
+                     ('Audit Log', b'H'),
+                     ('Response Headers', b'F'),
+                     ('Response Body', b'E')]:
+            data = self.sections.get(sect[1], [])
+            s += b'  {} Section\n'.format(sect[0])
+            if len(data) == 0:
+                s += b'    EMPTY\n'
+            else:
+                s += b'    ' + b'\n    '.join(data)
+                s += '\n'
+
+        return s.decode('ascii', 'ignore')
+
     def _parse_header(self):
         hdr_line = self.sections.get(b'A', [''])[0]
         #[11/Jul/2015:09:25:29 +0000] VaDhCJBM6u8AADsjpKoAAAAW 80.82.78.96 52018 144.76.234.239 80
