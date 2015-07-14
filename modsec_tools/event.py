@@ -41,8 +41,8 @@ class AuditInfo(object):
         B: Request Headers
         C: Request Body
         D: -- reserved
-        E: Response Headers
-        F: Response Body
+        E: Response Body
+        F: Response Headers
         G: -- reserved
         H: Audit Log Trailer
         I: Compact Request Body
@@ -51,6 +51,7 @@ class AuditInfo(object):
         Z: Final section (mandatory)
     """
     HEADER_re = re.compile(b"\[(.*)\] ([A-Za-z0-9\\\@\-]+) ([0-9\.]+) ([0-9]+) ([0-9\.]+) ([0-9]+)")
+    REQUEST_re = re.compile(b'[A-Z]{3,}\s+(.*)\s+HTTP')
 
     def __init__(self, audit_fn):
         self.audit_fn = audit_fn
@@ -61,7 +62,10 @@ class AuditInfo(object):
         self.audit_id = None
         self.date_time = None
         self.local_addr = self.remote_addr = None
+        self.local_port = self.remote_port = None
         self.mode = None
+        self.host = self.uri = None
+        self.response = 0
 
     def __str__(self):
         return "AuditRecord: {} : connection from {} [{}] {} rule(s)".format(
@@ -87,6 +91,13 @@ class AuditInfo(object):
                 return True
         return False
 
+    def matches_host(self, _host):
+        """ Check if host matches.
+        :param _host: Hostname to look for.
+        :return: True or False
+        """
+        return _host.lower() in self.host.lower()
+
     def add_section(self, match_info):
         """ match_info should be a list with 3 elements,
             - audit id
@@ -107,6 +118,10 @@ class AuditInfo(object):
 
         if match_info[1] == b'A':
             self._parse_header()
+        elif match_info[1] == b'B':
+            self._find_host_uri()
+        elif match_info[1] == b'F':
+            self._find_response_code()
         elif match_info[1] == b'H':
             self._extract_tags()
 
@@ -114,6 +129,37 @@ class AuditInfo(object):
         for hdr in self.sections.get(b'B'):
             k, v = hdr.split(':', 1)
             print(k, v)
+
+    def as_string(self, inc_headers=True):
+        """ Return a formatted string giving a summary of the request.
+        :return: Formatted string
+        """
+        s = b''
+        for hdr in [('Unique ID', 'unique_id'),
+                    ('Audit File', 'audit_fn'),
+                    ('URI', 'uri'),
+                    ('Host', 'host'),
+                    ('Date/Time', 'date_time'),
+                    ('Remote Address', 'remote_addr'),
+                    ('Response Code', 'response')]:
+            s += b'    {:20s}: {}\n'.format(hdr[0], getattr(self, hdr[1]))
+
+        def add_header_list(_hdrs, title):
+            hh = b'    {}\n'.format(title)
+            for h in _hdrs:
+                hh += b'      {}\n'.format(h)
+            return hh
+        if inc_headers:
+            s += add_header_list(self.sections.get('B', []), 'Request Headers:')
+        s += b'    {:20s}: {}\n'.format('# of Rules Matched', len(self.rules))
+        for r in self.rules:
+            s += b'      -  {}\n'.format(r.tag('msg'))
+            s += b'         ID: {}, Severity: {}\n'.format(r.tag('id'), r.tag('severity'))
+            s += b'         File: {}\n'.format(r.tag('file'))
+        if inc_headers:
+            s += add_header_list(self.sections.get('F', []), 'Response Headers:')
+
+        return s.decode()
 
     def _parse_header(self):
         hdr_line = self.sections.get(b'A', [''])[0]
@@ -131,8 +177,26 @@ class AuditInfo(object):
             else:
                 self.date_time -= diff
         self.unique_id = hdr.group(2)
-        self.remote_addr = (hdr.group(3), hdr.group(4))
-        self.local_addr = (hdr.group(5), hdr.group(6))
+        self.remote_addr = hdr.group(3)
+        self.remote_port = hdr.group(4)
+        self.local_addr = hdr.group(5)
+        self.local_port = hdr.group(6)
+
+    def _find_host_uri(self):
+        for line in self.sections.get(b'B', ['']):
+            if b'host:' in line.lower():
+                ignore, self.host = line.split(':', 1)
+                self.host = self.host.strip()
+            else:
+                ck = self.REQUEST_re.match(line)
+                if ck is not None:
+                    self.uri = ck.group(1)
+
+    def _find_response_code(self):
+        r = self.sections.get(b'F')
+        if r is None or len(r) == 0:
+            return
+        self.response = int(r[0].split(b' ')[1])
 
     def _extract_tags(self):
         for l in self.sections.get(b'H', []):
