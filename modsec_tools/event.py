@@ -13,29 +13,30 @@ class AuditRule(object):
         tags = (self.TAG_re.match(info))
         if tags is None:
             return
-        self.summary = tags.group(1)
-        self.error = tags.group(3)
+        self.summary = tags.group(1).decode()
+        self.error = tags.group(3).decode()
         _tags = []
         for _i in self.TAGS_re.split(tags.group(2)):
             if b' ' not in _i:
                 continue
             k, v = _i.split(b' ', 1)
-            v = v.replace(b'"', b'')
+            v = v.decode().replace('"', '')
             if k == b'tag':
                 _tags.append(v)
             else:
                 self.tags[k] = v
-        self.tags[b'tag'] = b", ".join(_tags)
+        self.tags[b'tag'] = ", ".join(_tags)
         if b'msg' not in self.tags:
-            self.tags[b'msg'] = self.summary + b' ' + self.error
+            self.tags[b'msg'] = self.summary + ' ' + self.error
 
     def tag(self, which):
         return self.tags.get(which, b'')
 
     @property
     def unique(self):
-        return "{} [{} {}]".format(self.tag(b'msg'), self.tag(b'id'),
-                                   self.tag(b'severity')).decode()
+        return "{} [{} {}]".format(self.tag(b'msg'),
+                                   self.tag(b'id'),
+                                   self.tag(b'severity'))
 
 
 class AuditInfo(object):
@@ -218,7 +219,7 @@ class AuditInfo(object):
     def _find_host_uri(self):
         for line in self.sections.get(b'B', ['']):
             if b'host:' in line.lower():
-                ignore, self.host = line.split(':', 1)
+                ignore, self.host = line.split(b':', 1)
                 self.host = self.host.strip()
             else:
                 ck = self.REQUEST_re.match(line)

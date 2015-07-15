@@ -4,11 +4,12 @@ import re
 import os
 import argparse
 
-from event import AuditInfo
+from modsec_tools.event import AuditInfo
 
 SECTION_re = re.compile(b"--(\w{8})-([A-Z])--")
 UNIQUE_ID_re = re.compile(b"\[.*\]\s+([A-Za-z0-9\\\@\-]+)\s+")
 AUDIT_IDS = {}
+
 
 def process_file(_fn, _entries):
     # Process a log file, which may be gzipped, line by line to rebuild
@@ -73,10 +74,9 @@ def file_summary(_entries):
             ff['lines'][r.tag(b'line')] = n + 1
 
     for f in sorted(files):
-        s += "  {}\n".format(f.decode())
+        s += "  {}\n".format(f)
         for ln in sorted(files[f]['lines']):
-            s += "      Line {:>5s}: {}\n".format(ln.decode(),
-                                                  files[f]['lines'][ln])
+            s += "      Line {:>5s}: {}\n".format(ln, files[f]['lines'][ln])
     return s
 
 
@@ -143,6 +143,7 @@ def main():
     parser.add_argument('--show-requests', action='store_true', help='Output request and response details')
     parser.add_argument('--show-full', action='store_true', help='Show full log entry information')
     parser.add_argument('--include-headers', action='store_true', help="Show request/response headers in output")
+    parser.add_argument('--output', help='File to save output into')
     parser.add_argument('files', nargs="*", help="Audit file(s) to parse")
 
     args = parser.parse_args()
@@ -217,26 +218,31 @@ def main():
         print("\nAfter filtering, {} entries were left.".format(len(entries)))
 
     if len(entries) > 0:
+        fh = sys.stdout if args.output is None else open(args.output, 'w')
+
         if args.rule_summary:
-            print(rule_summary(entries))
+            fh.write(rule_summary(entries))
 
         if args.file_summary:
-            print(file_summary(entries))
+            fh.write(file_summary(entries))
 
         if args.client_summary:
-            print(client_summary(entries))
+            fh.write(client_summary(entries))
 
         if args.uri_summary:
-            print(uri_summary(entries))
+            fh.write(uri_summary(entries))
 
         if args.show_requests:
-            print("\nREQUEST SUMMARIES:")
+            fh.write("\nREQUEST SUMMARIES:\n")
             for e in entries:
-                print(entries[e].as_string(args.include_headers))
+                fh.write(entries[e].as_string(args.include_headers))
 
         if args.show_full:
-            print("\nFULL REQUEST LOG:")
+            fh.write("\nFULL REQUEST LOG:\n")
             for e in entries:
-                print(entries[e].raw_data())
+                fh.write(entries[e].raw_data())
+        if args.output is not None:
+            fh.close()
+            print("\nOutput saved to {}".format(args.output))
 
     print("\nFinished.")
