@@ -41,30 +41,30 @@ def process_file(_fn, _entries):
                 parts[2].append(line)
     fh.close()
 
-def print_rule_summary(_entries):
+
+def rule_summary(_entries):
     # Print a summary of the rules used.
-    print("\nRule Summary\n")
+    s = "\nRule Summary\n"
     warnings = {'No rules matched': 0}
     for e in _entries:
         _obj = _entries[e]
         if len(_obj.rules) == 0:
             warnings['No rules matched'] += 1
         for r in _obj.rules:
-            uniq = "{} [{} {}]".format(r.tag(b'msg').decode(),
-                                       r.tag(b'id').decode(),
-                                       r.tag(b'severity').decode())
-            n = warnings.setdefault(uniq, 0)
-            warnings[uniq] = n + 1
+            n = warnings.setdefault(r.unique, 0)
+            warnings[r.unique] = n + 1
 
     for w in sorted(warnings):
         if warnings[w] == 0:
             continue
-        print("  {:6d}: {}".format(warnings[w], w))
+        s += "  {:6d}: {}".format(warnings[w], w)
+    return s
 
-def print_file_summary(_entries):
+
+def file_summary(_entries):
     # Print a summary of the rules used.
     files = {}
-    print("\nFile Summary\n")
+    s = "\nFile Summary\n"
     for e in _entries:
         _obj = _entries[e]
         for r in _obj.rules:
@@ -73,21 +73,46 @@ def print_file_summary(_entries):
             ff['lines'][r.tag(b'line')] = n + 1
 
     for f in sorted(files):
-        print("  {}".format(f.decode()))
+        s += "  {}".format(f.decode())
         for ln in sorted(files[f]['lines']):
-            print("      Line {:>5s}: {}".format(ln.decode(),
-                                                 files[f]['lines'][ln]))
+            s += "      Line {:>5s}: {}".format(ln.decode(),
+                                                files[f]['lines'][ln])
+    return s
 
-def print_client_summary(_entries):
+
+def client_summary(_entries):
     clients = {}
-    print("\nClient Summary\n")
+    s = "\nClient Summary\n"
     for e in _entries:
         _obj = _entries[e]
         n = clients.setdefault(_obj.remote_addr, 0)
         clients[_obj.remote_addr] = n + 1
 
     for c in sorted(clients):
-        print("  {:>15s}: {:10d}".format(c.decode(), clients[c]))
+        s += "  {:>15s}: {:10d}".format(c.decode(), clients[c])
+    return s
+
+
+def uri_summary(_entries):
+    uris = {}
+    s = "\nHost/URI Summary\n"
+    for e in _entries:
+        _obj = _entries[e]
+        uris.setdefault(_obj.host, {}).setdefault(_obj.uri, {})
+        for r in _obj.rules:
+            n = uris[_obj.host][_obj.uri].setdefault(r.unique, 0)
+            uris[_obj.host][_obj.uri][r.unique] = n + 1
+
+    for h in sorted(uris):
+        s += "  {}\n".format(h)
+        for u in sorted(uris[h]):
+            s += "    {}\n".format(u)
+            if len(uris[h][u]) == 0:
+                s += "      No mod_security2 rules were matched.\n"
+            for r in sorted(uris[h][u]):
+                s += "      {:60s}: {}\n".format(r, uris[h][u][r])
+    return s
+
 
 def has_filters(args):
     for a in dir(args):
@@ -97,11 +122,14 @@ def has_filters(args):
                 return True
     return False
 
+
 def main():
     parser = argparse.ArgumentParser(description='Analyse audit information from mod_security2')
     parser.add_argument('--rule-summary', action='store_true', help='Print a summary of rules triggered')
     parser.add_argument('--file-summary', action='store_true', help='Print a summary of rule files used')
     parser.add_argument('--client-summary', action='store_true', help='Print a summary of clients')
+    parser.add_argument('--uri-summary', action='store_true', help='Print a summary of host/uri requests')
+
     parser.add_argument('--filter', help='String to match for rule message')
     parser.add_argument('--filter-id', help='Filter by ID of rule')
     parser.add_argument('--filter-host', help='Hostname to filter requests for')
@@ -110,9 +138,11 @@ def main():
                         help='Only include requests that match at least one rule')
     parser.add_argument('--filter-response', type=int, help='Filter for given response code')
     parser.add_argument('--filter-uid', help="Filter for unique id's")
+    parser.add_argument('--filter-client', help="Filter for client IP")
+    parser.add_argument('--filter-uri', help='Filter for URI containing supplied text')
     parser.add_argument('--show-requests', action='store_true', help='Output request and response details')
     parser.add_argument('--show-full', action='store_true', help='Show full log entry information')
-    parser.add_argument('--exclude-headers', action='store_false', help="Don't show request/response headers in output")
+    parser.add_argument('--include-headers', action='store_true', help="Show request/response headers in output")
     parser.add_argument('files', nargs="*", help="Audit file(s) to parse")
 
     args = parser.parse_args()
@@ -149,6 +179,12 @@ def main():
             print("    - at least one rule must be matched")
         elif args.filter_no_rule:
             print("    - request must have triggered no rules")
+        if args.filter_uid:
+            print("    - request unique_id must contain '{}'".format(args.filter_uid))
+        if args.filter_client:
+            print("    - remote IP address must contain '{}'".format(args.filter_client))
+        if args.filter_uri:
+            print("    - requested URI must contain '{}'".format(args.filter_uri))
 
         filtered = {}
         for _e in entries:
@@ -170,25 +206,33 @@ def main():
                 continue
             if args.filter_response and _obj.response != args.filter_response:
                 continue
+            if args.filter_client and args.filter_client not in _obj.remote_addr:
+                continue
+            if args.filter_uri and args.filter_uri not in _obj.uri:
+                continue
+
             filtered[_e] = _obj
 
         entries = filtered
-        print("After filtering, {} entries were left.".format(len(entries)))
+        print("\nAfter filtering, {} entries were left.".format(len(entries)))
 
     if len(entries) > 0:
         if args.rule_summary:
-            print_rule_summary(entries)
+            print(rule_summary(entries))
 
         if args.file_summary:
-            print_file_summary(entries)
+            print(file_summary(entries))
 
         if args.client_summary:
-            print_client_summary(entries)
+            print(client_summary(entries))
+
+        if args.uri_summary:
+            print(uri_summary(entries))
 
         if args.show_requests:
             print("\nREQUEST SUMMARIES:")
             for e in entries:
-                print(entries[e].as_string(args.exclude_headers))
+                print(entries[e].as_string(args.include_headers))
 
         if args.show_full:
             print("\nFULL REQUEST LOG:")

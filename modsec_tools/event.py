@@ -32,6 +32,11 @@ class AuditRule(object):
     def tag(self, which):
         return self.tags.get(which, b'')
 
+    @property
+    def unique(self):
+        return "{} [{} {}]".format(self.tag(b'msg'), self.tag(b'id'),
+                                   self.tag(b'severity')).decode()
+
 
 class AuditInfo(object):
     """ Each event recorded in the audit log has a range of sections, specified
@@ -130,7 +135,7 @@ class AuditInfo(object):
             k, v = hdr.split(':', 1)
             print(k, v)
 
-    def as_string(self, inc_headers=True):
+    def as_string(self, inc_headers=False):
         """ Return a formatted string giving a summary of the request.
         :return: Formatted string
         """
