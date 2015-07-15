@@ -57,7 +57,7 @@ def rule_summary(_entries):
     for w in sorted(warnings):
         if warnings[w] == 0:
             continue
-        s += "  {:6d}: {}".format(warnings[w], w)
+        s += "  {:6d}: {}\n".format(warnings[w], w)
     return s
 
 
@@ -73,10 +73,10 @@ def file_summary(_entries):
             ff['lines'][r.tag(b'line')] = n + 1
 
     for f in sorted(files):
-        s += "  {}".format(f.decode())
+        s += "  {}\n".format(f.decode())
         for ln in sorted(files[f]['lines']):
-            s += "      Line {:>5s}: {}".format(ln.decode(),
-                                                files[f]['lines'][ln])
+            s += "      Line {:>5s}: {}\n".format(ln.decode(),
+                                                  files[f]['lines'][ln])
     return s
 
 
@@ -165,7 +165,7 @@ def main():
 
     for fn in args.files:
         process_file(fn, entries)
-    print("Total of {} entries were found.".format(len(entries)))
+    print("\nTotal of {} entries were found.".format(len(entries)))
 
     if has_filters(args):
         print("\nApplying requested filters...")
