@@ -83,13 +83,13 @@ class AuditInfo(object):
         :return: True or False
         """
         for r in self.rules:
-            if filter_str in r.tag(b'msg'):
+            if filter_str.lower() in r.tag(b'msg').lower():
                 return True
         return False
 
     def filter_id(self, _id):
         """
-        :param filter_str: String to filter on, rule msg only at present.
+        :param _id: Id of mod_security2 rule to match.
         :return: True or False
         """
         for r in self.rules:

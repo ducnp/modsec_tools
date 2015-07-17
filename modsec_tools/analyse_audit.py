@@ -177,7 +177,7 @@ def main():
         if args.filter_id is not None:
             print("    - rule ID must be {}".format(args.filter_id))
         if args.filter_rules:
-            print("    - at least one rule must be matched")
+            print("    - at least one modsec rule must have been triggered")
         elif args.filter_no_rule:
             print("    - request must have triggered no rules")
         if args.filter_uid:
@@ -195,11 +195,11 @@ def main():
                     filtered[_e] = _obj
                 continue
             if args.filter_host is not None:
-                if _obj.host is None or not _obj.matches_host(args.filter_host):
+                if _obj.host is None or _obj.matches_host(args.filter_host) is False:
                     continue
-            if args.filter is not None and not _obj.filter(args.filter):
+            if args.filter is not None and _obj.filter(args.filter) is False:
                 continue
-            if args.filter_id is not None and _obj.filter_id(args.filter_id):
+            if args.filter_id is not None and _obj.filter_id(args.filter_id) is False:
                 continue
             if args.filter_no_rule and len(_obj.rules) > 0:
                 continue
