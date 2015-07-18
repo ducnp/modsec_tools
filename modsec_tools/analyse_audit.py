@@ -1,46 +1,7 @@
 import sys
-import gzip
-import re
-import os
 import argparse
 
-from modsec_tools.event import AuditInfo
-
-SECTION_re = re.compile(b"--(\w{8})-([A-Z])--")
-UNIQUE_ID_re = re.compile(b"\[.*\]\s+([A-Za-z0-9\\\@\-]+)\s+")
-AUDIT_IDS = {}
-
-
-def process_file(_fn, _entries):
-    # Process a log file, which may be gzipped, line by line to rebuild
-    # audit log events.
-    if not os.path.exists(_fn):
-        print("File {} does not exist. Skipping...".format(_fn))
-        return
-
-    print("  Processing {}".format(_fn))
-    if _fn.endswith('.gz'):
-        fh = gzip.open(_fn, 'rb')
-    else:
-        fh = open(_fn, 'rb')
-
-    parts = []
-    for line in [l.strip() for l in fh.readlines()]:
-        ck = SECTION_re.match(line)
-        if ck is not None:
-            if len(parts) != 0:
-                if parts[1] == b'A':
-                    uid = UNIQUE_ID_re.match(parts[2][0])
-                    if uid is None:
-                        raise Exception("Unable to find unique id.")
-                    AUDIT_IDS[parts[0]] = uid.group(1)
-
-                _entries.setdefault(AUDIT_IDS[parts[0]], AuditInfo(_fn)).add_section(parts)
-            parts = [ck.group(1), ck.group(2), []]
-        else:
-            if len(line) > 0:
-                parts[2].append(line)
-    fh.close()
+from modsec_tools.filter import parse_and_filter, build_parser, extract_file_data
 
 
 def rule_summary(_entries):
@@ -64,15 +25,8 @@ def rule_summary(_entries):
 
 def file_summary(_entries):
     # Print a summary of the rules used.
-    files = {}
     s = "\nFile Summary\n"
-    for e in _entries:
-        _obj = _entries[e]
-        for r in _obj.rules:
-            ff = files.setdefault(r.tag(b'file'), {'lines': {}})
-            n = ff['lines'].setdefault(r.tag(b'line'), 0)
-            ff['lines'][r.tag(b'line')] = n + 1
-
+    files = extract_file_data(_entries)
     for f in sorted(files):
         s += "  {}\n".format(f)
         for ln in sorted(files[f]['lines']):
@@ -114,15 +68,6 @@ def uri_summary(_entries):
     return s
 
 
-def has_filters(args):
-    for a in dir(args):
-        if a.startswith('filter'):
-            v = getattr(args, a)
-            if v:
-                return True
-    return False
-
-
 def main():
     parser = argparse.ArgumentParser(description='Analyse audit information from mod_security2')
     parser.add_argument('--rule-summary', action='store_true', help='Print a summary of rules triggered')
@@ -130,92 +75,9 @@ def main():
     parser.add_argument('--client-summary', action='store_true', help='Print a summary of clients')
     parser.add_argument('--uri-summary', action='store_true', help='Print a summary of host/uri requests')
 
-    parser.add_argument('--filter', help='String to match for rule message')
-    parser.add_argument('--filter-id', help='Filter by ID of rule')
-    parser.add_argument('--filter-host', help='Hostname to filter requests for')
-    parser.add_argument('--filter-no-rule', action='store_true', help='Only include requests with no rules matched')
-    parser.add_argument('--filter-rules', action='store_true',
-                        help='Only include requests that match at least one rule')
-    parser.add_argument('--filter-response', type=int, help='Filter for given response code')
-    parser.add_argument('--filter-uid', help="Filter for unique id's")
-    parser.add_argument('--filter-client', help="Filter for client IP")
-    parser.add_argument('--filter-uri', help='Filter for URI containing supplied text')
-    parser.add_argument('--show-requests', action='store_true', help='Output request and response details')
-    parser.add_argument('--show-full', action='store_true', help='Show full log entry information')
-    parser.add_argument('--include-headers', action='store_true', help="Show request/response headers in output")
-    parser.add_argument('--output', help='File to save output into')
-    parser.add_argument('files', nargs="*", help="Audit file(s) to parse")
-
+    build_parser(parser)
     args = parser.parse_args()
-    entries = {}
-
-    if len(args.files) == 0:
-        print("No files specified, nothing to do :-)")
-        sys.exit(0)
-
-    if args.filter is not None and args.filter_id is not None:
-        print("Are you sure you want to specify both text & ID for filters?")
-
-    if args.show_requests and args.show_full:
-        print("You have asked for requests and full output which will generate a lot of information. " +
-              "Are you sure you mean this?")
-
-    if args.filter_no_rule and args.filter_rules:
-        print("You can't specify --filter-no-rule and --filter-rules together!")
-        sys.exit(0)
-
-    for fn in args.files:
-        process_file(fn, entries)
-    print("\nTotal of {} entries were found.".format(len(entries)))
-
-    if has_filters(args):
-        print("\nApplying requested filters...")
-        if args.filter_host is not None:
-            print("    - host must contain '{}'".format(args.filter_host))
-        if args.filter is not None:
-            print("    - rule message must contain '{}'".format(args.filter))
-        if args.filter_id is not None:
-            print("    - rule ID must be {}".format(args.filter_id))
-        if args.filter_rules:
-            print("    - at least one modsec rule must have been triggered")
-        elif args.filter_no_rule:
-            print("    - request must have triggered no rules")
-        if args.filter_uid:
-            print("    - request unique_id must contain '{}'".format(args.filter_uid))
-        if args.filter_client:
-            print("    - remote IP address must contain '{}'".format(args.filter_client))
-        if args.filter_uri:
-            print("    - requested URI must contain '{}'".format(args.filter_uri))
-
-        filtered = {}
-        for _e in entries:
-            _obj = entries[_e]
-            if args.filter_uid is not None:
-                if args.filter_uid in _obj.unique_id:
-                    filtered[_e] = _obj
-                continue
-            if args.filter_host is not None:
-                if _obj.host is None or _obj.matches_host(args.filter_host) is False:
-                    continue
-            if args.filter is not None and _obj.filter(args.filter) is False:
-                continue
-            if args.filter_id is not None and _obj.filter_id(args.filter_id) is False:
-                continue
-            if args.filter_no_rule and len(_obj.rules) > 0:
-                continue
-            if args.filter_rules and len(_obj.rules) == 0:
-                continue
-            if args.filter_response and _obj.response != args.filter_response:
-                continue
-            if args.filter_client and args.filter_client not in _obj.remote_addr:
-                continue
-            if args.filter_uri and args.filter_uri not in _obj.uri:
-                continue
-
-            filtered[_e] = _obj
-
-        entries = filtered
-        print("\nAfter filtering, {} entries were left.".format(len(entries)))
+    entries = parse_and_filter(args)
 
     if len(entries) > 0:
         fh = sys.stdout if args.output is None else open(args.output, 'w')
